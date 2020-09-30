@@ -1,2 +1,4 @@
 /pizza_bot
 /.idea
+/__pycache__
+/test.py
