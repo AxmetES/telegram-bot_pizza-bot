@@ -5,6 +5,7 @@ from telegram.ext import Filters, Updater
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from more_itertools import chunked
+from itertools import islice
 
 import load_menu
 import pprint
@@ -19,49 +20,41 @@ def start(bot, update):
     products = load_menu.get_products(load_menu.products_url, shop_token)['data']
     products_pages = chunked(products, 8)
     pages = list(products_pages)
+    products_menu = []
 
-    if update.callback_query and '<<' in update.callback_query.data:
+    if update.callback_query and '<<' in update.callback_query.data and current_page != 0:
         current_page -= 1
-        print(current_page)
 
         products_menu = [
             [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
             pages[current_page]
         ]
-        products_menu.append(
-            [InlineKeyboardButton('<<', callback_data='<<'),
-             InlineKeyboardButton(f'{current_page}', callback_data=' '),
-             InlineKeyboardButton('>>', callback_data='>>'), ]
-        )
-        reply_markup = InlineKeyboardMarkup(products_menu)
 
-    if update.callback_query and '>>' in update.callback_query.data:
+    elif update.callback_query and '>>' in update.callback_query.data and current_page != len(pages) - 1:
         current_page += 1
-        print(current_page)
-
         products_menu = [
             [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
             pages[current_page]
         ]
-        products_menu.append(
-            [InlineKeyboardButton('<<', callback_data='<<'),
-             InlineKeyboardButton(f'{current_page}', callback_data=' '),
-             InlineKeyboardButton('>>', callback_data='>>'), ]
-        )
-        reply_markup = InlineKeyboardMarkup(products_menu)
 
-    if update.message:
+    elif update.message:
         current_page = 0
         products_menu = [
             [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
             pages[current_page]
         ]
-        products_menu.append(
-            [InlineKeyboardButton('<<', callback_data='<<'),
-             InlineKeyboardButton(f'{current_page}', callback_data=' '),
-             InlineKeyboardButton('>>', callback_data='>>'), ]
-        )
-        reply_markup = InlineKeyboardMarkup(products_menu)
+    else:
+        products_menu = [
+            [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
+            pages[current_page]
+        ]
+
+    products_menu.append(
+        [InlineKeyboardButton('<<', callback_data='<<'),
+         InlineKeyboardButton(f'{current_page + 1}', callback_data=' '),
+         InlineKeyboardButton('>>', callback_data='>>'), ]
+    )
+    reply_markup = InlineKeyboardMarkup(products_menu)
 
     if update.callback_query:
         bot.sendMessage(chat_id=update.callback_query.message.chat_id, text='Please choose:', reply_markup=reply_markup)
