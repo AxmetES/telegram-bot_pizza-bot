@@ -16,36 +16,34 @@ current_page = 0
 
 def start(bot, update):
     global current_page
-    reply_markup = None
     products = load_menu.get_products(load_menu.products_url, shop_token)['data']
     products_pages = chunked(products, 8)
     pages = list(products_pages)
-    products_menu = []
 
     if update.callback_query and '<<' in update.callback_query.data and current_page != 0:
         current_page -= 1
 
         products_menu = [
-            [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
+            [InlineKeyboardButton(f"{page['name']}", callback_data=f"*{page['id']}")] for page in
             pages[current_page]
         ]
 
     elif update.callback_query and '>>' in update.callback_query.data and current_page != len(pages) - 1:
         current_page += 1
         products_menu = [
-            [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
+            [InlineKeyboardButton(f"{page['name']}", callback_data=f"*{page['id']}")] for page in
             pages[current_page]
         ]
 
     elif update.message:
         current_page = 0
         products_menu = [
-            [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
+            [InlineKeyboardButton(f"{page['name']}", callback_data=f"*{page['id']}")] for page in
             pages[current_page]
         ]
     else:
         products_menu = [
-            [InlineKeyboardButton(f"{page['name']}", callback_data=f"{page['id']}")] for page in
+            [InlineKeyboardButton(f"{page['name']}", callback_data=f"*{page['id']}")] for page in
             pages[current_page]
         ]
 
@@ -70,9 +68,10 @@ def start(bot, update):
 
 
 def handle_menu(bot, update):
-    product_id = update.callback_query.data
+    product_id = None
+    if '*' in update.callback_query.data:
+        product_id = update.callback_query.data.replace('*', '')
     product = load_menu.get_product(product_id, shop_token)
-    print(product)
     main_image_id = product['data']['relationships']['main_image']['data']['id']
     image_url = load_menu.get_file_url(main_image_id, shop_token)['data']['link']['href']
     menu = [
@@ -178,7 +177,6 @@ def waiting_email(bot, update):
         pass
     if customer_id:
         customer = load_menu.get_customer(customer_id)
-        print(customer)
     else:
         customer_id = load_menu.create_customer(customer_data, shop_token)['data']['id']
         db.set(email, customer_id)
@@ -188,6 +186,11 @@ def waiting_email(bot, update):
     bot.delete_message(update.message.chat_id, update.message.message_id)
 
     return 'WAITING_EMAIL'
+
+
+def handle_waiting(bot, update):
+
+    return 'HANDLE_WAITING'
 
 
 def handle_users_reply(bot, update):
@@ -206,6 +209,8 @@ def handle_users_reply(bot, update):
         user_state = 'HANDLE_CART'
     elif user_reply == 'to_payment':
         user_state = 'SEND_EMAIL'
+    elif '*' in user_reply:
+        user_state = 'HANDLE_MENU'
     else:
         user_state = db.get(chat_id).decode("utf-8")
 
@@ -216,6 +221,7 @@ def handle_users_reply(bot, update):
         'HANDLE_CART': handle_cart,
         'WAITING_EMAIL': waiting_email,
         'SEND_EMAIL': send_email,
+        'HANDLE_WAITING': handle_waiting,
     }
     state_handler = states_functions[user_state]
     next_state = state_handler(bot, update)
