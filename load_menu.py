@@ -90,7 +90,7 @@ def get_cart(chat_id, shop_token):
         'Content-Type': 'application/json',
     }
     response = requests.get(cart_url, headers=headers)
-    response.raise_for_status()
+    # response.raise_for_status()
     return response.json()
 
 
@@ -102,8 +102,7 @@ def add_product_to_cart(chat_id, shop_token, payload_cart):
         'Content-Type': 'application/json',
     }
     response = requests.post(url, headers=headers, json=payload_cart)
-    # response.raise_for_status()
-    print(response.json())
+    response.raise_for_status()
 
 
 def get_cart_items(chat_id, shop_token):
