@@ -1,8 +1,7 @@
-import os
+﻿import os
 
 import redis
 import requests
-from dotenv import load_dotenv
 from environs import Env
 from more_itertools import chunked
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -93,7 +92,7 @@ def handle_menu(bot, update):
     image_url = load_menu.get_file_url(main_image_id, shop_token)['data']['link']['href']
     menu = [
             [InlineKeyboardButton(f"Add to cart {product['data']['name']}", callback_data=f"{product['data']['id']}")],
-            [InlineKeyboardButton("go to cart", callback_data='to_сart'),
+            [InlineKeyboardButton("go to cart", callback_data='/сart'),
              InlineKeyboardButton("back to menu", callback_data='/start')]
             ]
     reply_markup = InlineKeyboardMarkup(menu)
@@ -130,6 +129,7 @@ def handle_description(bot, update):
 def handle_cart(bot, update):
     items_message = "Cart is empty."
     chat_id = str(update.callback_query.message.chat_id)
+    message_id = update.callback_query.message.message_id
 
     if '|||' in update.callback_query.data:
         product_id = update.callback_query.data.split('|||').pop(0)
@@ -156,58 +156,16 @@ def handle_cart(bot, update):
         menu.append([InlineKeyboardButton(f"remove from cart {product['name']}",
                                           callback_data=f"{product['id']}|||")])
 
-    menu.append([InlineKeyboardButton(f"payment", callback_data="to_payment")])
+    menu.append([InlineKeyboardButton(f"payment", callback_data="/location")])
     menu.append([InlineKeyboardButton(f"back to menu", callback_data="/start")])
     reply_markup = InlineKeyboardMarkup(menu)
 
-    bot.sendMessage(chat_id=update.callback_query.message.chat_id, text=f'{items_message}\nTotal: {total_cost}',
+    bot.sendMessage(chat_id=chat_id, text=f'{items_message}\nTotal: {total_cost}',
                     reply_markup=reply_markup)
 
-    bot.delete_message(chat_id=update.callback_query.message.chat_id,
-                       message_id=update.callback_query.message.message_id)
+    bot.delete_message(chat_id=chat_id, message_id=message_id)
 
     return 'HANDLE_CART'
-
-
-# def send_email(bot, update):
-#     if update.callback_query.data == 'to_payment':
-#         bot.sendMessage(chat_id=update.callback_query.message.chat_id, text='please send your email address!')
-#
-#     bot.delete_message(chat_id=update.callback_query.message.chat_id,
-#                        message_id=update.callback_query.message.message_id)
-#
-#     return 'WAITING_EMAIL'
-
-
-# def waiting_email(bot, update):
-#     customer_id = None
-#     db = get_database_connection()
-#     users_email = update.message.text
-#     user_name = update.message.chat.username
-#     email = str(users_email)
-#     customer_data = {
-#             'data': {
-#                     'type': 'customer',
-#                     'name': user_name,
-#                     'email': email,
-#                     }
-#             }
-#
-#     try:
-#         customer_id = str(db.get(email).decode('utf-8'))
-#     except AttributeError:
-#         pass
-#     if customer_id:
-#         customer = load_menu.get_customer(customer_id)
-#     else:
-#         customer_id = load_menu.create_customer(customer_data, shop_token)['data']['id']
-#         db.set(email, customer_id)
-#
-#     update.message.reply_text(f"do you send me that email address? : {users_email}")
-#
-#     bot.delete_message(update.message.chat_id, update.message.message_id)
-#
-#     return 'WAITING_EMAIL'
 
 
 def handle_waiting(bot, update):
@@ -220,61 +178,50 @@ def handle_waiting(bot, update):
         chat_id = update.callback_query.message.chat_id
         message_id = update.callback_query.message.message_id
 
-    bot.sendMessage(chat_id=chat_id, text='Please submit  your address for example "г.Астана ул.Республика 7"')
-    bot.deleteMessage(chat_id=chat_id, message_id=message_id)
+    bot.sendMessage(chat_id=chat_id,
+                    text='Please submit  your location or address \n'
+                         'for example:  г.Астана ул.Республика 7')
+    bot.delete_message(chat_id=chat_id, message_id=message_id)
 
-    return 'HANDLE_GEO'
+    return 'HANDLE_RANGE'
 
 
-def location(bot, update):
-    print('location')
+def handle_rang(bot, update):
+    api_key = env.str('GEO_API_KEY')
     message = None
-    if update.edited_message:
-        chat_id = update.edited_message.chat_id
-        message = update.edited_message
-        message_id = update.edited_message.message_id
-    else:
+    chat_id = None
+    message_id = None
+
+    if update.message:
         chat_id = update.message.chat_id
         message = update.message
         message_id = update.message.message_id
 
-    current_pos = (message.location.latitude, message.location.longitude)
-    bot.sendMessage(chat_id=chat_id, text=f'{current_pos}')
-    bot.deleteMessage(chat_id=chat_id, message_id=message_id)
+    if message.location:
+        current_pos = f'{message.location.longitude}, {message.location.latitude}'
+        print(current_pos)
+        print('current_pos_locations-------------')
+        bot.delete_message(chat_id=chat_id, message_id=message_id)
+        return 'HANDLE_RANGE'
 
-    return 'HANDLE_WAITING'
-
-
-def handle_geo(bot, update):
-    print('in geo--------------')
-    api_key = env.str('GEO_API_KEY')
-    user_reply = None
-    chat_id = None
-    message_id = None
-    lon = None
-    lat = None
-
-    if update.message:
+    else:
         chat_id = update.message.chat_id
         message_id = update.message.message_id
         user_reply = update.message.text
-    elif update.callback_query:
-        chat_id = update.callback_query.message.chat_id
-        message_id = update.callback_query.message.message_id
-        user_reply = update.callback_query.data
+        try:
+            lon, lat = fetch_coordinates(apikey=api_key, place=user_reply)
+            current_pos = f'{lon},{lat}'
+            print(current_pos)
+            print('current_pos------------')
+            # db.set(chat_id, str(coords))
 
-    try:
-        lon, lat = fetch_coordinates(apikey=api_key, place=user_reply)
-    except requests.exceptions.ConnectionError as e:
-        print(e)
-    except ConnectionError as e:
-        print(e)
-    except Exception as e:
-        print(f'something going wrong wrong with GEO API --- {e}')
+        except (requests.exceptions.ConnectionError, ConnectionError, IndexError):
 
-    bot.sendMessage(chat_id=chat_id, text=f'{lat} - {lon}')
-    bot.delete_message(chat_id=chat_id, message_id=message_id)
-    return 'HANDLE_GEO'
+            bot.sendMessage(chat_id=chat_id,
+                            text=f'The address you gave is incorrect, please try again, or try the incorrect operation of the system later.')
+            bot.delete_message(chat_id=chat_id, message_id=message_id)
+            return 'HANDLE_WAITING'
+        return 'HANDLE_RANGE'
 
 
 def handle_users_reply(bot, update):
@@ -289,15 +236,16 @@ def handle_users_reply(bot, update):
         return
     if user_reply == '/start':
         user_state = 'START'
-    elif user_reply == 'to_сart':
+    elif user_reply == '/сart':
         user_state = 'HANDLE_CART'
-    elif user_reply == 'to_payment':
+    elif user_reply == '/location':
         user_state = 'HANDLE_WAITING'
     elif '*' in user_reply:
         user_state = 'HANDLE_MENU'
     else:
         user_state = db.get(chat_id).decode("utf-8")
         print(user_state)
+        print('user_state-----------')
 
     states_functions = {
             'START': start,
@@ -305,13 +253,13 @@ def handle_users_reply(bot, update):
             'HANDLE_DESCRIPTION': handle_description,
             'HANDLE_CART': handle_cart,
             'HANDLE_WAITING': handle_waiting,
-            'HANDLE_GEO': handle_geo,
+            'HANDLE_RANGE': handle_rang,
             }
     state_handler = states_functions[user_state]
-
     next_state = state_handler(bot, update)
-
     db.set(chat_id, next_state)
+    print(next_state)
+    print('next_state-----------')
 
 
 def get_database_connection():
@@ -325,10 +273,9 @@ def get_database_connection():
 
 
 if __name__ == '__main__':
-    load_dotenv()
-    client_id = os.getenv('CLIENT_ID')
-    client_secret_key = os.getenv('CLIENT_SECRET')
-    token = os.getenv("TG_TOKEN")
+    client_id = env.str('CLIENT_ID')
+    client_secret_key = env.str('CLIENT_SECRET')
+    token = env.str("TG_TOKEN")
     updater = Updater(token)
 
     data = {
@@ -336,13 +283,12 @@ if __name__ == '__main__':
             'client_secret': client_secret_key,
             'grant_type': 'client_credentials'
             }
-    shop_token = load_menu.get_shop_token(load_menu.token_url)['access_token']
+    shop_token = load_menu.get_access_token(load_menu.token_url)['access_token']
     print(f' shop token ---- {shop_token}')
 
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
-    dispatcher.add_handler(MessageHandler(Filters.command, handle_users_reply))
-    dispatcher.add_handler(MessageHandler(Filters.text, handle_geo))
-    dispatcher.add_handler(MessageHandler(Filters.location, location))
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
+    dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
+    dispatcher.add_handler(MessageHandler(Filters.location, handle_rang))
     updater.start_polling()
