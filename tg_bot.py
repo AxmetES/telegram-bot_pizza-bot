@@ -3,11 +3,13 @@
 import redis
 import requests
 from environs import Env
+from geopy.distance import distance
 from more_itertools import chunked
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
 from telegram.ext import Filters, Updater
 
+import bot_load_data
 import load_menu
 
 env = Env()
@@ -179,11 +181,29 @@ def handle_waiting(bot, update):
         message_id = update.callback_query.message.message_id
 
     bot.sendMessage(chat_id=chat_id,
-                    text='Please submit  your location or address \n'
-                         'for example:  г.Астана ул.Республика 7')
+                    text='Please submit  your location or address.')
     bot.delete_message(chat_id=chat_id, message_id=message_id)
 
     return 'HANDLE_RANGE'
+
+
+def get_distance(args):
+    return args['distance']
+
+
+def calculate_range_to_pizzeria(chat_id, current_pos, get_pizzerias_coords):
+    distances = []
+    for pizzeria_pos in get_pizzerias_coords:
+        for key in pizzeria_pos:
+            pizzeria_coords = pizzeria_pos[key]
+            dist_to_pizzeria = distance((current_pos), (pizzeria_coords['lng'], pizzeria_coords['lat'])).km
+            distances.append({
+                    'pizzeria_address': key,
+                    'distance': round(dist_to_pizzeria, 3),
+                    })
+
+    min_dist_to_pizz = min(distances, key=get_distance)
+    return min_dist_to_pizz
 
 
 def handle_rang(bot, update):
@@ -199,10 +219,7 @@ def handle_rang(bot, update):
 
     if message.location:
         current_pos = f'{message.location.longitude}, {message.location.latitude}'
-        print(current_pos)
-        print('current_pos_locations-------------')
         bot.delete_message(chat_id=chat_id, message_id=message_id)
-        return 'HANDLE_RANGE'
 
     else:
         chat_id = update.message.chat_id
@@ -213,15 +230,34 @@ def handle_rang(bot, update):
             current_pos = f'{lon},{lat}'
             print(current_pos)
             print('current_pos------------')
-            # db.set(chat_id, str(coords))
 
         except (requests.exceptions.ConnectionError, ConnectionError, IndexError):
-
             bot.sendMessage(chat_id=chat_id,
                             text=f'The address you gave is incorrect, please try again, or try the incorrect operation of the system later.')
             bot.delete_message(chat_id=chat_id, message_id=message_id)
             return 'HANDLE_WAITING'
-        return 'HANDLE_RANGE'
+
+    min_dist_to_pizz = calculate_range_to_pizzeria(chat_id, current_pos, bot_load_data.pizzerias_coords)
+    if min_dist_to_pizz['distance'] < 0.5:
+        bot.send_message(chat_id=chat_id, text='Pizzeria less than 0,5 km from you, delivery is free. \n'
+                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+    if 0.5 < min_dist_to_pizz['distance'] < 5:
+        bot.send_message(chat_id=chat_id, text='Pizzeria less than 5 km from you, delivery is 100 RUB. \n'
+                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+    if 5 < min_dist_to_pizz['distance'] < 20:
+        bot.send_message(chat_id=chat_id, text='Pizzeria less than 20 km from you, delivery is 300 RUB. \n'
+                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+    if 20 < min_dist_to_pizz['distance'] < 51:
+        bot.send_message(chat_id=chat_id,
+                         text='Pizzeria less than 20 - 50 km from you can pick up your the pizza yourself. \n'
+                              'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+
+    if min_dist_to_pizz['distance'] > 51:
+        bot.send_message(chat_id=chat_id,
+                         text='Out of our pizzerias service range. \n'
+                              'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+
+    return 'HANDLE_RANGE'
 
 
 def handle_users_reply(bot, update):

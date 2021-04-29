@@ -31,7 +31,6 @@ def create_client_credential_token(access_token_url):
             "grant_type": "client_credentials",
             }
     response = requests.get(access_token_url, data=data)
-    print(response.json())
     access_token = response.json()['access_token']
     return access_token
 
@@ -90,33 +89,14 @@ def upload_address_to_flow(shop_token, fields, flow_slug):
         print(created_entry)
 
 
-def get_all_entries(access_token):
-    headers = {
-            'Authorization': 'Bearer {}'.format(access_token),
-            }
-    print(headers)
-    response = requests.get('https://api.moltin.com/v2/flows/{}/entries'.format('pizzeria'), headers=headers)
-    response.raise_for_status()
-    return response.json()
-
-
-def get_pizzeria_address(entries):
-    pizzerias_address = []
-    for pizzeria in entries:
-        pizzerias_address.append({})
-    return
-
-
 if __name__ == '__main__':
     flow_slug = 'pizzeria'
     # fields = load_data.load_menu(load_data.address_url)
     access_token = create_client_credential_token(access_token_url)
+    print(access_token)
 
     # upload_address_to_flow(access_token, fields, flow_slug)
 
     # created_fields = create_fields(url, fields, shop_token)
     # print(created_fields)
-
-    entries = get_all_entries(entries_url, access_token)
-    pizzerias_address = get_pizzeria_address(entries)
 
