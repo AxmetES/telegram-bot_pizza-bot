@@ -6,8 +6,7 @@ from environs import Env
 from geopy.distance import distance
 from more_itertools import chunked
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
-from telegram.ext import Filters, Updater
+from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler, Filters, Updater
 
 import bot_load_data
 import load_menu
@@ -207,20 +206,24 @@ def calculate_range_to_pizzeria(chat_id, current_pos, get_pizzerias_coords):
 
 
 def handle_rang(bot, update):
+    db = get_database_connection()
     api_key = env.str('GEO_API_KEY')
     message = None
     chat_id = None
     message_id = None
+    text = None
 
     if update.message:
         chat_id = update.message.chat_id
         message = update.message
         message_id = update.message.message_id
+        username = update.message.from_user['username']
+        print(username)
+        print('user------')
 
     if message.location:
         current_pos = f'{message.location.longitude}, {message.location.latitude}'
         bot.delete_message(chat_id=chat_id, message_id=message_id)
-
     else:
         chat_id = update.message.chat_id
         message_id = update.message.message_id
@@ -228,8 +231,6 @@ def handle_rang(bot, update):
         try:
             lon, lat = fetch_coordinates(apikey=api_key, place=user_reply)
             current_pos = f'{lon},{lat}'
-            print(current_pos)
-            print('current_pos------------')
 
         except (requests.exceptions.ConnectionError, ConnectionError, IndexError):
             bot.sendMessage(chat_id=chat_id,
@@ -237,27 +238,49 @@ def handle_rang(bot, update):
             bot.delete_message(chat_id=chat_id, message_id=message_id)
             return 'HANDLE_WAITING'
 
+    delivery_menu = [[InlineKeyboardButton('Do you want we deliver your pizza?.', callback_data='/delivery')],
+                     [InlineKeyboardButton('Do you want pick up your pizza?.', callback_data='/pickup')]]
+    replay_markup = InlineKeyboardMarkup(delivery_menu)
+
     min_dist_to_pizz = calculate_range_to_pizzeria(chat_id, current_pos, bot_load_data.pizzerias_coords)
+
+    db.set(str(username), min_dist_to_pizz['pizzeria_address'])
+
     if min_dist_to_pizz['distance'] < 0.5:
-        bot.send_message(chat_id=chat_id, text='Pizzeria less than 0,5 km from you, delivery is free. \n'
-                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+        text = '''Pizzeria less than 0,5 km from you, delivery cost free. Pizzeria's address {}.\n \
+                {} km from you'''.format(
+                min_dist_to_pizz['pizzeria_address'], min_dist_to_pizz['distance'])
     if 0.5 < min_dist_to_pizz['distance'] < 5:
-        bot.send_message(chat_id=chat_id, text='Pizzeria less than 5 km from you, delivery is 100 RUB. \n'
-                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+        text = '''Pizzeria less than 5 km from you, delivery cost 100 RUB. Pizzeria's address {}.\n \
+                {} km from you'''.format(
+                min_dist_to_pizz['pizzeria_address'], min_dist_to_pizz['distance'])
     if 5 < min_dist_to_pizz['distance'] < 20:
-        bot.send_message(chat_id=chat_id, text='Pizzeria less than 20 km from you, delivery is 300 RUB. \n'
-                                               'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+        text = '''Pizzeria less than 20 km from you, delivery cost 300 RUB. Pizzeria's address {}.\n \
+                {} km from you'''.format(
+                min_dist_to_pizz['pizzeria_address'], min_dist_to_pizz['distance'])
     if 20 < min_dist_to_pizz['distance'] < 51:
-        bot.send_message(chat_id=chat_id,
-                         text='Pizzeria less than 20 - 50 km from you can pick up your the pizza yourself. \n'
-                              'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
+        text = '''Pizzeria in 20 - 50 km from you, you can pick up your pizza yourself. Pizzeria address {},\n \
+               {} km from you'''.format(min_dist_to_pizz['pizzeria_address'],
+                                        min_dist_to_pizz['distance'])
 
     if min_dist_to_pizz['distance'] > 51:
-        bot.send_message(chat_id=chat_id,
-                         text='Out of our pizzerias service range. \n'
-                              'Pizzeria address {}'.format(min_dist_to_pizz['pizzeria_address']))
-
+        text = '''Out of our pizzerias service range.\n \
+        Pizzeria address {}, rang {} km from you.'''.format(min_dist_to_pizz['pizzeria_address'],
+                                                            min_dist_to_pizz['distance'])
+    bot.send_message(chat_id=chat_id, text=text, reply_markup=replay_markup)
     return 'HANDLE_RANGE'
+
+
+def handle_pickup(bot, update):
+    db = get_database_connection()
+
+    if update.callback_query:
+        username = update.callback_query.from_user['username']
+        print(username)
+        pizzeria_address = db.get(str(username)).decode('utf-8')
+        bot.send_message(chat_id=update.callback_query.message.chat_id,
+                         text='Thank you, you can pickup you pizza here:\n {}.'.format(pizzeria_address))
+    return 'HANDLE_PICKUP'
 
 
 def handle_users_reply(bot, update):
@@ -278,10 +301,10 @@ def handle_users_reply(bot, update):
         user_state = 'HANDLE_WAITING'
     elif '*' in user_reply:
         user_state = 'HANDLE_MENU'
+    elif user_reply == '/pickup':
+        user_state = 'HANDLE_PICKUP'
     else:
         user_state = db.get(chat_id).decode("utf-8")
-        print(user_state)
-        print('user_state-----------')
 
     states_functions = {
             'START': start,
@@ -290,12 +313,11 @@ def handle_users_reply(bot, update):
             'HANDLE_CART': handle_cart,
             'HANDLE_WAITING': handle_waiting,
             'HANDLE_RANGE': handle_rang,
+            'HANDLE_PICKUP': handle_pickup,
             }
     state_handler = states_functions[user_state]
     next_state = state_handler(bot, update)
     db.set(chat_id, next_state)
-    print(next_state)
-    print('next_state-----------')
 
 
 def get_database_connection():
